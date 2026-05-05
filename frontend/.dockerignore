@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual env
+.venv/
+venv/
+
+# Secrets (frontend không cần API key, nhưng phòng thủ)
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Streamlit cache
+.streamlit/cache/
