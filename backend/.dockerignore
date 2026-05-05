@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Virtual env (không copy vào image, sẽ pip install trong build)
+.venv/
+venv/
+
+# Secrets — không bao giờ copy vào image
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
