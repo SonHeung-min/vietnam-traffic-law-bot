@@ -403,6 +403,7 @@ def print_structure(chuong_list: list[Chuong], phu_luc_list: list[PhuLuc] | None
                     continue
 
                 print(f"    Điều {dieu.so}: {dieu.ten[:60]}...")
+                print(f"      {dieu.noi_dung[:60]}...")
                 for khoan in dieu.khoan_list:
                     diem_count = len(khoan.diem_list)
                     print(f"      Khoản {khoan.so}: {khoan.noi_dung[:50]}... ({diem_count} điểm)")
@@ -425,5 +426,5 @@ def print_structure(chuong_list: list[Chuong], phu_luc_list: list[PhuLuc] | None
 
 if __name__ == "__main__":
     # Test với file mẫu
-    chuong_list, phu_luc_list = parse_docx("../data/raw/Luật-36-2024-QH15.docx")
+    chuong_list, phu_luc_list = parse_docx("../data/raw/raw_luat/Luật-35-2024-QH15.docx")
     print_structure(chuong_list, phu_luc_list)
