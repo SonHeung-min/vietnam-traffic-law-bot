@@ -114,19 +114,28 @@ class PhuLuc:
 def _table_to_text(table: Table) -> str:
     """
     Chuyển bảng trong .docx thành dạng markdown table chuẩn.
-    Ví dụ:
-        | STT | Hành vi | Mức phạt |
-        | --- | --- | --- |
-        | 1 | Vi phạm A | 2.000.000 |
+    Dedupe các cell bị merge ngang (python-docx trả cùng 1 _Cell cho
+    mỗi cột thuộc gridSpan → text sẽ bị lặp nếu không dedupe).
     """
+    def dedup_cells(row):
+        seen, out = set(), []
+        for cell in row.cells:
+            key = id(cell._tc)
+            if key in seen:
+                continue
+            seen.add(key)
+            text = cell.text.strip().replace("\n", " ")
+            out.append(text)
+        return out
+
     rows = []
     for row in table.rows:
-        cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+        cells = dedup_cells(row)
         rows.append("| " + " | ".join(cells) + " |")
     if not rows:
         return ""
-    # Chèn separator line sau header row
-    num_cols = len(table.rows[0].cells)
+
+    num_cols = len(dedup_cells(table.rows[0]))
     separator = "| " + " | ".join(["---"] * num_cols) + " |"
     rows.insert(1, separator)
     return "\n".join(rows)
