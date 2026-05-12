@@ -9,7 +9,9 @@ import re
 from dataclasses import dataclass, field
 from docx import Document
 from docx.table import Table
+from docx.text.paragraph import Paragraph
 from docx.oxml.ns import qn
+from utils import _roman_to_int
 
 
 # ── Regex patterns ───────────────────────────────────────────────────────────
@@ -135,28 +137,11 @@ def _iter_block_items(doc):
     Duyệt tất cả block-level elements trong document body theo đúng thứ tự.
     Trả về từng element là Paragraph hoặc Table object.
     """
-    from docx.text.paragraph import Paragraph
-
     for child in doc.element.body:
         if child.tag == qn("w:p"):
             yield Paragraph(child, doc)
         elif child.tag == qn("w:tbl"):
             yield Table(child, doc)
-
-
-def _roman_to_int(roman: str) -> int:
-    """Chuyển số La Mã sang số nguyên. Nếu đã là số thì trả về luôn."""
-    if roman.isdigit():
-        return int(roman)
-    roman = roman.upper()
-    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-    result = 0
-    for i, ch in enumerate(roman):
-        if i + 1 < len(roman) and values.get(ch, 0) < values.get(roman[i + 1], 0):
-            result -= values.get(ch, 0)
-        else:
-            result += values.get(ch, 0)
-    return result
 
 
 # ── Main parser ──────────────────────────────────────────────────────────────
