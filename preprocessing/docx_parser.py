@@ -43,15 +43,9 @@ RE_DIEM = re.compile(
     r"^([a-zđ])\)\s+(.*)",
 )
 
-# Phụ lục I, Phụ lục II, Phụ lục 1...
+# Phụ lục I, Phụ lục II, Phụ lục 1... hoặc Phụ lục không đánh số
 RE_PHU_LUC = re.compile(
-    r"^Phụ\s+lục\s+([IVXLCDM]+|\d+)\b\s*(.*)",
-    re.IGNORECASE,
-)
-
-# Mẫu số 01, Mẫu số 1...
-RE_MAU_SO = re.compile(
-    r"^Mẫu\s+số\s+(\d+\w*)[.:]\s*(.*)",
+    r"^Phụ\s+lục(?:\s+số)?(?:\s+([IVXLCDM]+|\d+\w*))?\s*(.*)",
     re.IGNORECASE,
 )
 
@@ -95,18 +89,10 @@ class Chuong:
 
 
 @dataclass
-class MauVanBan:
-    so: str            # "01", "02", ...
-    ten: str           # tên mẫu
-    noi_dung: str = "" # nội dung mẫu (text + bảng)
-
-
-@dataclass
 class PhuLuc:
-    so: int | str      # số phụ lục (La Mã hoặc Ả Rập)
+    so: int | str | None   # số phụ lục (La Mã hoặc Ả Rập); None nếu không đánh số
     ten: str           # tên phụ lục
-    noi_dung: str = "" # nội dung chung (không thuộc mẫu nào)
-    mau_list: list[MauVanBan] = field(default_factory=list)
+    noi_dung: str = "" # nội dung chung
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
@@ -165,12 +151,18 @@ def parse_docx(file_path: str) -> tuple[list[Chuong], list[PhuLuc]]:
     blocks = list(_iter_block_items(doc))
 
     # ── Tìm vị trí bắt đầu phụ lục ─────────────────────────────────────
+    # Phụ lục luôn nằm cuối văn bản → bỏ qua match nếu sau đó còn Điều.
     phu_luc_start = len(blocks)
     for i, block in enumerate(blocks):
         if isinstance(block, Table):
             continue
-        line = block.text.strip()
-        if RE_PHU_LUC.match(line):
+        if not RE_PHU_LUC.match(block.text.strip()):
+            continue
+        has_dieu_after = any(
+            isinstance(b, Paragraph) and RE_DIEU.match(b.text.strip())
+            for b in blocks[i + 1:]
+        )
+        if not has_dieu_after:
             phu_luc_start = i
             break
 
@@ -326,29 +318,22 @@ def _parse_phan_chinh(blocks) -> list[Chuong]:
 
 
 def _parse_phu_luc(blocks) -> list[PhuLuc]:
-    """Parse phần phụ lục: Phụ lục → Mẫu số."""
+    """Parse phần phụ lục."""
 
     phu_luc_list: list[PhuLuc] = []
     current_pl: PhuLuc | None = None
-    current_mau: MauVanBan | None = None
 
     for block in blocks:
 
         # ── Table ────────────────────────────────────────────────────────
         if isinstance(block, Table):
             table_text = _table_to_text(block)
-            if not table_text:
+            if not table_text or not current_pl:
                 continue
-            if current_mau:
-                if current_mau.noi_dung:
-                    current_mau.noi_dung += "\n" + table_text
-                else:
-                    current_mau.noi_dung = table_text
-            elif current_pl:
-                if current_pl.noi_dung:
-                    current_pl.noi_dung += "\n" + table_text
-                else:
-                    current_pl.noi_dung = table_text
+            if current_pl.noi_dung:
+                current_pl.noi_dung += "\n" + table_text
+            else:
+                current_pl.noi_dung = table_text
             continue
 
         # ── Paragraph ────────────────────────────────────────────────────
@@ -360,27 +345,13 @@ def _parse_phu_luc(blocks) -> list[PhuLuc]:
         m = RE_PHU_LUC.match(line)
         if m:
             so_raw, ten = m.group(1), m.group(2).strip()
-            so = _roman_to_int(so_raw)
+            so = _roman_to_int(so_raw) if so_raw else None
             current_pl = PhuLuc(so=so, ten=ten)
             phu_luc_list.append(current_pl)
-            current_mau = None
-            continue
-
-        # ── Mẫu số mới ──────────────────────────────────────────────────
-        m = RE_MAU_SO.match(line)
-        if m and current_pl:
-            so, ten = m.group(1), m.group(2).strip()
-            current_mau = MauVanBan(so=so, ten=ten)
-            current_pl.mau_list.append(current_mau)
             continue
 
         # ── Dòng tiếp nối ────────────────────────────────────────────────
-        if current_mau:
-            if current_mau.noi_dung:
-                current_mau.noi_dung += " " + line
-            else:
-                current_mau.noi_dung = line
-        elif current_pl:
+        if current_pl:
             if current_pl.noi_dung:
                 current_pl.noi_dung += " " + line
             else:
@@ -418,13 +389,9 @@ def print_structure(chuong_list: list[Chuong], phu_luc_list: list[PhuLuc] | None
             print(f"\nPhụ lục {pl.so}: {pl.ten[:]}")
             if pl.noi_dung:
                 print(f"  Nội dung: {pl.noi_dung[:]}...")
-            for mau in pl.mau_list:
-                print(f"  Mẫu số {mau.so}: {mau.ten[:]}...")
-                if mau.noi_dung:
-                    print(f"    {mau.noi_dung[:]}...")
 
 
 if __name__ == "__main__":
     # Test với file mẫu
-    chuong_list, phu_luc_list = parse_docx("../data/raw/raw_luat/Luật-35-2024-QH15.docx")
+    chuong_list, phu_luc_list = parse_docx("../data/raw/hop_nhat_da_xu_ly_phu_luc/nghi_dinh/Nghị-định-61-2026-NĐ-CP.docx")
     print_structure(chuong_list, phu_luc_list)
