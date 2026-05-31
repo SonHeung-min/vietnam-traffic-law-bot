@@ -23,16 +23,21 @@ Schema mỗi chunk:
             "khoan_so"          : int | None
             "diem"              : str | None  (ký hiệu điểm, vd "a", "b", "đ")
             "source_file"       : đường dẫn file .docx gốc (relative to project root, POSIX)
+            "dieu_ten"          : tên điều
+            "noi_dung_dieu"     : preamble đầu điều        (vd "Điều này quy định...")
+            "noi_dung_khoan"    : nội dung đầu khoản       (vd "Phạt tiền từ 4.000.000...")
+            "noi_dung_diem"     : nội dung điểm, không có prefix "a)"
+            "level"             : 1 (chỉ Điều) | 2 (Khoản) | 3 (Điểm)
+            "is_sibling"        : bool — False mặc định
         },
-        "dieu_ten"              : tên điều
-        "noi_dung_dieu"         : preamble đầu điều        (vd "Điều này quy định...")
-        "noi_dung_khoan"        : nội dung đầu khoản       (vd "Phạt tiền từ 4.000.000...")
-        "noi_dung_diem"         : nội dung điểm, không có prefix "a)"
-        "noi_dung_tham_chieu"   : list phụ lục được nhúng inline (do link_tham_chieu điền)
+        "page_content"          : str — text ghép sẵn để embed:
+                                    "Điều X: tên(\npreamble)\nN. khoản\na. điểm"
+        "noi_dung_tham_chieu"   : list[str] — phụ lục được nhúng inline
+                                    (do link_tham_chieu() điền sau khi build)
     }
 
 Granularity: 1 chunk = 1 điểm (nếu có) → 1 khoản (nếu không có điểm) → 1 điều (nếu không có khoản).
-Nội dung được giữ tách riêng để run_index.py linh hoạt ghép khi embed.
+3 trường nội dung (dieu/khoan/diem) nằm trong metadata.
 """
 
 import re
@@ -148,7 +153,8 @@ def _build_one_chunk(
     noi_dung_khoan: str,
     noi_dung_diem: str,
 ) -> dict:
-    """Tạo 1 chunk JSON theo schema "raw parts" (3 trường nội dung tách riêng)."""
+    """Tạo 1 chunk JSON theo schema hiện tại: metadata chứa toàn bộ thông tin
+    (kể cả 3 trường nội dung dieu/khoan/diem), page_content ghép sẵn để embed."""
 
     so_hieu_slug = doc_info["so_hieu"].replace("/", "_").replace("-", "_")
     diem_ky_hieu = diem.ky_hieu if diem else None
@@ -180,13 +186,27 @@ def _build_one_chunk(
             "diem":       diem_ky_hieu,
 
             "source_file": Path(source_file).as_posix(),
+                    
+            # Nội dung
+            "dieu_ten":   dieu.ten,
+            "noi_dung_dieu":  noi_dung_dieu or "",
+            "noi_dung_khoan": noi_dung_khoan or "",
+            "noi_dung_diem":  noi_dung_diem or "",
+
+            # Level
+            "level": 3 if noi_dung_diem else (2 if noi_dung_khoan else 1),
+
+            # Trường anh em cùng điều
+            "is_sibling": False
         },
 
-        # Nội dung tách riêng
-        "dieu_ten":   dieu.ten,
-        "noi_dung_dieu":  noi_dung_dieu or "",
-        "noi_dung_khoan": noi_dung_khoan or "",
-        "noi_dung_diem":  noi_dung_diem or "",
+        "page_content": "\n".join(
+            [
+                f"Điều {dieu.so}: {dieu.ten}" + (f"\n{noi_dung_dieu}" if noi_dung_dieu else ""),
+                f"{khoan.so}. {noi_dung_khoan}" if khoan else "",
+                f"{diem.ky_hieu}. {noi_dung_diem}" if diem else ""
+            ]
+        ),
 
         "noi_dung_tham_chieu": [],
     }
@@ -196,8 +216,8 @@ def _build_one_chunk(
 
 def link_tham_chieu(chunks: list[dict], phu_luc_list: list[PhuLuc]) -> None:
     """
-    Scan nội dung mỗi chunk phần chính, tìm tham chiếu phụ lục,
-    nhúng trực tiếp {phu_luc_so, phu_luc_ten, noi_dung} vào noi_dung_tham_chieu.
+    Scan page_content của mỗi chunk, tìm tham chiếu phụ lục (có số hoặc kèm theo),
+    nhúng nội dung phụ lục tương ứng dưới dạng chuỗi vào noi_dung_tham_chieu.
 
     Sửa trực tiếp (in-place), không trả về.
     """
@@ -207,37 +227,25 @@ def link_tham_chieu(chunks: list[dict], phu_luc_list: list[PhuLuc]) -> None:
         lookup[pl.so] = pl
 
     for chunk in chunks:
-        text_parts = [
-            chunk.get("noi_dung_dieu", ""),
-            chunk.get("noi_dung_khoan", ""),
-            chunk.get("noi_dung_diem", ""),
-        ]
-        text = "\n".join(p for p in text_parts if p)
+        text = chunk.get("page_content", "")
 
         refs: list[dict] = []
         seen: set[int | None] = set()
 
         # Phụ lục có số: "Phụ lục II", "Phụ lục số 02"...
         for m in RE_PHU_LUC_REF.finditer(text):
-            pl_so = _roman_to_int(m.group(1))
+            pl_so_raw = m.group(1)
+            pl_so = _roman_to_int(pl_so_raw)
             pl = lookup.get(pl_so)
             if pl and pl_so not in seen:
-                refs.append({
-                    "phu_luc_so":  pl.so,
-                    "phu_luc_ten": pl.ten,
-                    "noi_dung":    pl.noi_dung or "",
-                })
+                refs.append(f"Phụ lục {pl_so_raw}: {pl.ten} {pl.noi_dung}")
                 seen.add(pl_so)
 
         # Phụ lục không đánh số: "Phụ lục kèm theo Nghị định này"
         if RE_PHU_LUC_KEM_THEO.search(text):
             pl = lookup.get(None)
             if pl and None not in seen:
-                refs.append({
-                    "phu_luc_so":  pl.so,
-                    "phu_luc_ten": pl.ten,
-                    "noi_dung":    pl.noi_dung or "",
-                })
+                refs.append(f"Phụ lục kèm theo: {pl.ten} {pl.noi_dung}")
                 seen.add(None)
 
         chunk["noi_dung_tham_chieu"] = refs
