@@ -31,6 +31,7 @@ ENV/
 # ── Data (raw/processed pipeline) ───────────────────────────────────────────
 # Khong commit data lon (PDF/DOCX/JSON da xu ly).
 # Neu can chia se, dung Git LFS hoac luu ngoai repo.
+data/
 data/raw/
 data/processed/
 data/done/
